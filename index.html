@@ -12,7 +12,6 @@
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     
     <style>
-        /* ... (стили остаются прежними, я их не менял) ... */
         :root { --bg-color: #0f111a; --card-bg: #1a1d2d; --accent: #00d2ff; --text-main: #fff; --text-muted: #8b92a5; --border: #2a2e42; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Montserrat', sans-serif; background-color: var(--bg-color); color: var(--text-main); min-height: 100vh; padding: 20px; }
@@ -49,7 +48,6 @@
             <input type="file" id="fileInput" accept="image/*">
             <i class="fas fa-image" style="font-size: 30px; color: var(--accent);"></i>
             <p>Нажмите, чтобы выбрать скриншот</p>
-            <p style="font-size: 12px; color: #888;">Важно: скриншот должен быть сделан в игре (не обрезанный)</p>
         </div>
         <button class="btn-primary" id="uploadBtn" onclick="uploadImage()">Распознать и добавить</button>
         <div id="status">Ожидание файла...</div>
@@ -59,9 +57,7 @@
         <h2><i class="fas fa-chart-line" style="color: var(--accent);"></i> Статистика клана</h2>
         <div class="table-responsive">
             <table>
-                <thead>
-                    <tr><th>#</th><th>Игрок</th><th>Матчи</th><th>У</th><th>С</th><th>K/D</th></tr>
-                </thead>
+                <thead><tr><th>#</th><th>Игрок</th><th>Матчи</th><th>У</th><th>С</th><th>K/D</th></tr></thead>
                 <tbody id="statsBody"><tr><td colspan="6" style="text-align:center;">Загрузка...</td></tr></tbody>
             </table>
         </div>
@@ -69,6 +65,7 @@
 </div>
 
 <canvas id="hiddenCanvas" style="display: none;"></canvas>
+<canvas id="debugCanvas" style="display: none;"></canvas> <!-- Для отладки -->
 
 <script>
     const ADMIN_PASSWORD = "10293847Yy"; 
@@ -84,7 +81,6 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
 
-    // --- АВТОРИЗАЦИЯ ---
     let isAdmin = localStorage.getItem('isAdmin') === 'true';
     function updateAdminUI() {
         document.getElementById('uploadPanel').style.display = isAdmin ? 'block' : 'none';
@@ -94,34 +90,28 @@
     }
     function toggleAdmin() {
         if (isAdmin) { isAdmin = false; localStorage.removeItem('isAdmin'); updateAdminUI(); } 
-        else {
-            if (prompt("Пароль:") === ADMIN_PASSWORD) { isAdmin = true; localStorage.setItem('isAdmin', 'true'); updateAdminUI(); }
-            else alert("Неверный пароль");
-        }
+        else { if (prompt("Пароль:") === ADMIN_PASSWORD) { isAdmin = true; localStorage.setItem('isAdmin', 'true'); updateAdminUI(); } else alert("Неверный пароль"); }
     }
     window.addEventListener('DOMContentLoaded', updateAdminUI);
 
-    // --- СТАТИСТИКА ---
     db.collection('players').onSnapshot((snapshot) => {
         let players = [];
         snapshot.forEach(doc => { players.push(doc.data()); });
         const tbody = document.getElementById('statsBody');
         tbody.innerHTML = '';
         if (players.length === 0) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Нет данных</td></tr>'; return; }
-        
         players.sort((a, b) => b.avgKD - a.avgKD);
         players.forEach((player, index) => {
             const tr = document.createElement('tr');
             if (player.name.toLowerCase().includes('infern')) tr.classList.add('highlight');
-            tr.innerHTML = `
-                <td>${index + 1}</td><td>${player.name}</td><td>${player.matches}</td>
-                <td>${player.totalKills}</td><td>${player.totalDeaths}</td>
-                <td class="kd">${player.avgKD.toFixed(2)}</td>`;
+            tr.innerHTML = `<td>${index + 1}</td><td>${player.name}</td><td>${player.matches}</td><td>${player.totalKills}</td><td>${player.totalDeaths}</td><td class="kd">${player.avgKD.toFixed(2)}</td>`;
             tbody.appendChild(tr);
         });
     });
 
-    // --- ЗОНАЛЬНЫЙ АНАЛИЗ И OCR ---
+    // ==========================================
+    // УМНАЯ ОБРЕЗКА И РАСПОЗНАВАНИЕ
+    // ==========================================
     async function uploadImage() {
         if (!isAdmin) return;
         const fileInput = document.getElementById('fileInput');
@@ -130,71 +120,104 @@
         
         if (!fileInput.files[0]) { status.innerText = "Выберите файл!"; return; }
         btn.disabled = true;
-        status.innerText = "⏳ Обработка изображения...";
+        status.innerText = "⏳ Анализ пикселей (поиск таблицы)...";
 
         try {
-            // 1. Загружаем картинку в Canvas
             const img = new Image();
             img.src = URL.createObjectURL(fileInput.files[0]);
             await new Promise(resolve => img.onload = resolve);
 
-            // Если скриншот с телефона, он может быть огромным. 
-            // Мы создаем эталонный размер, под который будем подгонять координаты.
+            // Масштабируем до ширины 1920 для единообразия координат
             const canvas = document.getElementById('hiddenCanvas');
             const ctx = canvas.getContext('2d');
-            
-            // Масштабируем картинку до ширины 1920 (стандарт монитора), чтобы координаты совпадали
             const targetWidth = 1920;
             const scale = targetWidth / img.width;
             canvas.width = targetWidth;
             canvas.height = img.height * scale;
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-            // 2. Вырезаем область таблицы (примерные координаты для десктопа)
-            // Верхний левый угол таблицы (Х, У) и её размеры
-            const tableX = 640; 
-            const tableY = 150; 
+            // --- УМНЫЙ ПОИСК ТАБЛИЦЫ ПО ПИКСЕЛЯМ ---
+            // Ищем темно-серый прямоугольник таблицы в левой части экрана
+            // Сканируем строку Y=200 (там обычно начинается шапка таблицы)
+            let tableStartX = 0;
+            let tableStartY = 0;
+            const scanY = 200; // Примерная высота шапки таблицы
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+
+            // Ищем границу таблицы (где начинается темный фон)
+            // Проходим по пикселям и ищем резкий переход цвета
+            for (let x = 100; x < canvas.width / 2; x++) {
+                const i = (scanY * canvas.width + x) * 4;
+                const r = data[i], g = data[i+1], b = data[i+2];
+                // Если цвет стал темно-серым (цвет фона таблицы)
+                if (r < 50 && g < 50 && b < 60) {
+                    tableStartX = x;
+                    break;
+                }
+            }
+
+            // Если не нашли, берем стандартное значение
+            if (tableStartX === 0) tableStartX = 640;
+            
+            // Верх таблицы ищем чуть выше (примерно 150 пикселей от верха)
+            tableStartY = 150;
+
+            // Размеры таблицы (подобрано под 1920px)
             const tableWidth = 1280;
             const tableHeight = 880;
 
-            // Вырезаем только таблицу
-            const tableImgData = ctx.getImageData(tableX, tableY, tableWidth, tableHeight);
+            // Вырезаем область таблицы
+            const tableImgData = ctx.getImageData(tableStartX, tableStartY, tableWidth, tableHeight);
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = tableWidth;
             tempCanvas.height = tableHeight;
             tempCanvas.getContext('2d').putImageData(tableImgData, 0, 0);
 
-            // 3. Отправляем в OCR (пока общий, чтобы вытащить ники)
-            // Для точности переводим в ч/б и увеличиваем контраст
+            // --- ОТЛАДКА: Показываем вырезанную область (раскомментируйте, если нужно посмотреть) ---
+            // document.body.appendChild(tempCanvas); 
+            // tempCanvas.style.display = 'block';
+
+            status.innerText = "⏳ Нейросеть читает вырезанную область...";
+            
             const worker = await Tesseract.createWorker('rus+eng');
             await worker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK });
             
-            // Распознаем вырезанную таблицу
+            // Отправляем на распознавание ТОЛЬКО ВЫРЕЗАННУЮ ЧАСТЬ
             const ret = await worker.recognize(tempCanvas);
             await worker.terminate();
 
-            // 4. Парсим текст
+            // Парсинг
             const lines = ret.data.text.split('\n');
             const players = [];
 
-            // Регулярка: Место, Ник, У, С, П
+            // Улучшенная регулярка: ищет строку, где после места и ника идут 3 числа подряд
+            // Пример: "1 MadgicCristal 35 19 10 31310..."
             const rowRegex = /^(\d{1,2})\s+([A-Za-z0-9_\-\|\sа-яА-Я]+?)\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+/;
-            
+
             lines.forEach(line => {
-                const match = line.trim().match(rowRegex);
+                const cleanLine = line.trim();
+                const match = cleanLine.match(rowRegex);
                 if (match) {
-                    players.push({
-                        name: match[2].trim(),
-                        kills: parseInt(match[3]),
-                        deaths: parseInt(match[4])
-                    });
+                    const name = match[2].trim();
+                    const kills = parseInt(match[3]);
+                    const deaths = parseInt(match[4]);
+                    
+                    // Фильтр мусора (если имя слишком короткое или цифры странные)
+                    if (name.length > 2 && kills < 100) {
+                        players.push({ name, kills, deaths });
+                    }
                 }
             });
 
-            if (players.length === 0) { throw new Error("Таблица не распознана"); }
+            if (players.length === 0) { 
+                status.innerText = "❌ Не удалось найти таблицу. Проверьте, что скриншот сделан полностью (не обрезан)."; 
+                btn.disabled = false; 
+                return; 
+            }
 
-            // 5. Сохраняем в Firebase
-            status.innerText = "📤 Сохранение данных...";
+            status.innerText = `📤 Сохранение ${players.length} игроков...`;
             const batch = db.batch();
             for (const p of players) {
                 const safeName = p.name.replace(/\//g, '_');
@@ -217,7 +240,7 @@
                 }
             }
             await batch.commit();
-            status.innerText = `✅ Успешно: ${players.length} игроков добавлено.`;
+            status.innerText = `✅ Успешно добавлено!`;
             fileInput.value = '';
 
         } catch (e) {
