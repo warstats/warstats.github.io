@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stalzone Clan Stats</title>
+    <!-- Tesseract.js для распознавания -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <!-- Firebase (Firestore) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1e1e24; color: #fff; padding: 20px; margin: 0; }
+        h1, h2 { color: #00d2ff; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        .card { background: #2b2b36; padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #444; padding: 10px; text-align: center; }
+        th { background: #353545; color: #00d2ff; }
+        tr:nth-child(even) { background: #252530; }
+        .highlight { background: rgba(0, 210, 255, 0.2) !important; }
+        .name-col { text-align: left; font-weight: bold; }
+        input[type="file"] { margin-top: 10px; color: #ccc; }
+        button { background: #00d2ff; color: #000; border: none; padding: 10px 20px; font-weight: bold; border-radius: 5px; cursor: pointer; margin-top: 10px; transition: 0.2s; }
+        button:hover { background: #00b8e6; }
+        button:disabled { background: #555; color: #888; cursor: not-allowed; }
+        #status { margin-top: 10px; color: #ffaa00; font-weight: bold; }
+        .loading { font-style: italic; color: #aaa; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🏆 Статистика клана (Stalzone)</h1>
+    
+    <div class="card">
+        <h2>Загрузить новый скриншот</h2>
+        <p>Выберите скриншот сводки с поля боя. Данные навсегда сохранятся в облаке.</p>
+        <input type="file" id="fileInput" accept="image/*">
+        <br>
+        <button id="uploadBtn" onclick="uploadImage()">Отправить на распознавание</button>
+        <div id="status">Ожидание...</div>
+    </div>
+
+    <div class="card">
+        <h2>Общая статистика игроков</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Никнейм</th>
+                    <th>Матчей</th>
+                    <th>Всего Убийств</th>
+                    <th>Всего Смертей</th>
+                    <th>Средний K/D</th>
+                </tr>
+            </thead>
+            <tbody id="statsBody">
+                <tr><td colspan="6" class="loading">Загрузка данных из облака...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    // ==========================================
+    // ВАШ КОНФИГ ИЗ FIREBASE
+    // ==========================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyAlpgpurJx8dEwBDWpkXSIjUYaUh-r7xNE",
+      authDomain: "clanwars-arms.firebaseapp.com",
+      databaseURL: "https://clanwars-arms-default-rtdb.firebaseio.com/", 
+      projectId: "clanwars-arms",
+      storageBucket: "clanwars-arms.firebasestorage.app",
+      messagingSenderId: "636686968167",
+      appId: "1:636686968167:web:e5cbfe652bd3cb41117bc2",
+      measurementId: "G-76KVGNN87L"
+    };
+
+    // Инициализация Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore(); // Используем Firestore
+
+    // 1. Загрузка статистики (в реальном времени)
+    function loadStats() {
+        const tbody = document.getElementById('statsBody');
+        
+        // Слушаем изменения в коллекции 'players'
+        db.collection('players').onSnapshot((snapshot) => {
+            let players = [];
+            
+            snapshot.forEach(doc => {
+                players.push({
+                    id: doc.id,
+                    ...doc.data()
+                });
+            });
+
+            tbody.innerHTML = '';
+
+            if (players.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6">Пока нет данных. Загрузите первый скриншот!</td></tr>';
+                return;
+            }
+
+            // Сортировка по убыванию K/D
+            players.sort((a, b) => b.avgKD - a.avgKD);
+
+            // Отрисовка
+            players.forEach((player, index) => {
+                const tr = document.createElement('tr');
+                if (player.name.toLowerCase().includes('infern')) tr.classList.add('highlight');
+                
+                tr.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td class="name-col">${player.name}</td>
+                    <td>${player.matches}</td>
+                    <td>${player.totalKills}</td>
+                    <td>${player.totalDeaths}</td>
+                    <td style="color: #00d2ff; font-weight: bold;">${player.avgKD.toFixed(2)}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }, (error) => {
+            console.error("Ошибка БД:", error);
+            tbody.innerHTML = '<tr><td colspan="6" style="color:red;">Ошибка подключения к базе. Проверьте правила Firestore.</td></tr>';
+        });
+    }
+
+    // 2. Распознавание и сохранение
+    async function uploadImage() {
+        const fileInput = document.getElementById('fileInput');
+        const status = document.getElementById('status');
+        const btn = document.getElementById('uploadBtn');
+        
+        if (!fileInput.files[0]) {
+            status.innerText = "Пожалуйста, выберите файл!";
+            return;
+        }
+
+        btn.disabled = true;
+        status.innerText = "⏳ Нейросеть распознает текст (10-20 сек)... Пожалуйста, подождите.";
+
+        try {
+            const worker = await Tesseract.createWorker('rus+eng');
+            await worker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK });
+            const ret = await worker.recognize(fileInput.files[0]);
+            await worker.terminate();
+
+            status.innerText = "📤 Сохранение результатов в базу данных...";
+            
+            const lines = ret.data.text.split('\n');
+            const rowRegex = /^(\d{1,2})\s+([A-Za-z0-9_\-\|\sа-яА-Я]+?)\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+/;
+            const players = [];
+
+            lines.forEach(line => {
+                const match = line.trim().match(rowRegex);
+                if (match) {
+                    players.push({
+                        name: match[2].trim(),
+                        kills: parseInt(match[3]),
+                        deaths: parseInt(match[4])
+                    });
+                }
+            });
+
+            if (players.length === 0) {
+                status.innerText = "❌ Не удалось распознать таблицу. Обрежьте скриншот, оставив только список игроков.";
+                btn.disabled = false;
+                return;
+            }
+
+            // Запись в Firestore
+            const batch = db.batch();
+            
+            for (const p of players) {
+                // В Firestore ID документа не может содержать слеши (/), заменяем их
+                const safeName = p.name.replace(/\//g, '_');
+                const playerRef = db.collection('players').doc(safeName);
+                
+                // Получаем текущие данные
+                const doc = await playerRef.get();
+                
+                if (doc.exists) {
+                    const data = doc.data();
+                    const newMatches = data.matches + 1;
+                    const newKills = data.totalKills + p.kills;
+                    const newDeaths = data.totalDeaths + p.deaths;
+                    const newKD = newDeaths > 0 ? (newKills / newDeaths) : newKills;
+
+                    batch.update(playerRef, {
+                        matches: newMatches,
+                        totalKills: newKills,
+                        totalDeaths: newDeaths,
+                        avgKD: newKD
+                    });
+                } else {
+                    const newKD = p.deaths > 0 ? (p.kills / p.deaths) : p.kills;
+                    batch.set(playerRef, {
+                        name: p.name,
+                        matches: 1,
+                        totalKills: p.kills,
+                        totalDeaths: p.deaths,
+                        avgKD: newKD
+                    });
+                }
+            }
+
+            await batch.commit(); // Сохраняем всё разом
+            
+            status.innerText = `✅ Успешно! Добавлен матч для ${players.length} игроков.`;
+            fileInput.value = '';
+            
+        } catch (e) {
+            console.error(e);
+            status.innerText = "❌ Ошибка: " + e.message;
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    // Запуск при загрузке страницы
+    window.onload = loadStats;
+</script>
+</body>
+</html>
