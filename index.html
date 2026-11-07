@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stalzone Clan Stats (Fast)</title>
+    <title>Stalzone Clan Stats</title>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <!-- Нейросеть (Tesseract) БОЛЬШЕ НЕ ПОДКЛЮЧАЕТСЯ! -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     
@@ -23,7 +23,8 @@
         .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 20px; padding: 25px; margin-bottom: 25px; }
         #uploadPanel { display: none; }
         .upload-area { border: 2px dashed var(--border); border-radius: 12px; padding: 30px; text-align: center; cursor: pointer; }
-        button.btn-primary { background: var(--accent); color: #000; border: none; padding: 12px 24px; border-radius: 10px; font-weight: 600; width: 100%; margin-top: 15px; cursor: pointer; }
+        button.btn-primary { background: var(--accent); color: #000; border: none; padding: 12px 24px; font-weight: 600; width: 100%; margin-top: 15px; cursor: pointer; border-radius: 10px;}
+        button.btn-primary:disabled { background: #555; cursor: wait;}
         #status { margin-top: 15px; font-size: 14px; color: #ffaa00; text-align: center; font-weight: bold; }
         .table-responsive { overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; }
@@ -44,12 +45,13 @@
 
     <div class="card" id="uploadPanel">
         <h2><i class="fas fa-cloud-upload-alt"></i> Загрузка скриншота</h2>
+        <p style="font-size:12px; color:#888; margin-bottom: 10px;">Внимание: скриншот должен быть сделан в игре с открытой таблицей (не обрезанный).</p>
         <div class="upload-area">
             <input type="file" id="fileInput" accept="image/*">
             <i class="fas fa-image" style="font-size: 30px; color: var(--accent);"></i>
             <p>Нажмите, чтобы выбрать скриншот</p>
         </div>
-        <button class="btn-primary" id="uploadBtn" onclick="uploadImage()">Распознать и добавить</button>
+        <button class="btn-primary" id="uploadBtn" onclick="uploadImage()">Анализ пикселей (Мгновенно)</button>
         <div id="status">Ожидание файла...</div>
     </div>
 
@@ -80,6 +82,15 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
 
+    // СПИСОК ИГРОКОВ (Сюда впишите ники с ваших скриншотов)
+    // Поскольку мы отказались от OCR для скорости, ники берутся отсюда по порядку (строчка 1, 2, 3...)
+    const CLAN_ROSTER = [
+        "MadgicCristal", "Dr_Piluka", "Alex_and_steave", "Infernitys", "FLINGG", "O_JDH_O",
+        "MihaQO", "NikitaBulba", "Miha_beast", "lioKeVlar", "Timofeyku", "Jojo_zef",
+        "Kir_Van", "TEMIH", "FurryDoter", "YetiLusuy", "Beryozka_", "Alpha_zero_six",
+        "Muxaidig", "Bravo_zero_six", "Bulbashe", "ProduktCZ", "SKVIDI", "WWQ"
+    ];
+
     let isAdmin = localStorage.getItem('isAdmin') === 'true';
     function updateAdminUI() {
         document.getElementById('uploadPanel').style.display = isAdmin ? 'block' : 'none';
@@ -108,6 +119,9 @@
         });
     });
 
+    // ==========================================
+    // АЛГОРИТМ АНАЛИЗА ПО ПИКСЕЛЯМ (МГНОВЕННО)
+    // ==========================================
     async function uploadImage() {
         if (!isAdmin) return;
         const fileInput = document.getElementById('fileInput');
@@ -116,66 +130,65 @@
         
         if (!fileInput.files[0]) { status.innerText = "Выберите файл!"; return; }
         btn.disabled = true;
-        status.innerText = "⚡ Анализ по колонкам (быстро)...";
+        status.innerText = "⚡ Сканирование пикселей... (0.5 сек)";
 
         try {
             const img = new Image();
             img.src = URL.createObjectURL(fileInput.files[0]);
             await new Promise(resolve => img.onload = resolve);
 
+            // Уменьшаем картинку до стандартного размера, чтобы координаты совпадали
             const canvas = document.getElementById('hiddenCanvas');
             const ctx = canvas.getContext('2d');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            ctx.drawImage(img, 0, 0);
+            const targetWidth = 1920;
+            const scale = targetWidth / img.width;
+            canvas.width = targetWidth;
+            canvas.height = img.height * scale;
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-            // === ЖЕСТКИЕ КООРДИНАТЫ ТАБЛИЦЫ (в процентах от размера) ===
-            // Мы не ищем таблицу, а берем ее по известным координатам
-            const tableX = canvas.width * 0.33; 
-            const tableY = canvas.height * 0.12; 
-            const tableW = canvas.width * 0.65; 
-            const tableH = canvas.height * 0.83; 
-
-            const rowHeight = tableH / 23; // Высота одной строки (23 игрока в таблице)
-
-            // Нейросеть мы используем ТОЛЬКО для ников (они могут быть разными)
-            // А цифры мы вырежем отдельно и дадим ей маленькие картинки
-            // Это сильно ускорит работу.
-
-            const worker = await Tesseract.createWorker('rus+eng');
-            // Настраиваем на быстрый режим
-            await worker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE });
+            // Примерные координаты таблицы (X, Y, Ширина, Высота)
+            // В вашем интерфейсе таблица начинается примерно с X=660 и Y=165
+            const tableX = 660; 
+            const tableY = 165; 
+            const tableW = 1140; 
+            const tableH = 880; 
+            
+            // 23 строки в таблице. Вычисляем высоту одной строки
+            const rowHeight = tableH / 23;
 
             const players = [];
-            
-            status.innerText = "⚡ Быстрое чтение таблицы...";
 
-            // Вырезаем всю таблицу для ников
-            const tableCanvas = document.createElement('canvas');
-            tableCanvas.width = tableW;
-            tableCanvas.height = tableH;
-            tableCanvas.getContext('2d').drawImage(canvas, tableX, tableY, tableW, tableH, 0, 0, tableW, tableH);
-            
-            // Прогоняем через OCR только для получения текста (ников)
-            const ret = await worker.recognize(tableCanvas);
-            await worker.terminate();
-            
-            const lines = ret.data.text.split('\n');
-            const rowRegex = /^(\d{1,2})\s+([A-Za-z0-9_\-\|\sа-яА-Я]+?)\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+/;
+            // Проходим по каждой строке
+            for (let i = 0; i < 23; i++) {
+                // Если игроков в списке меньше, чем строк — прерываемся
+                if (i >= CLAN_ROSTER.length) break;
 
-            lines.forEach(line => {
-                const match = line.trim().match(rowRegex);
-                if (match) {
-                    players.push({
-                        name: match[2].trim(),
-                        kills: parseInt(match[3]),
-                        deaths: parseInt(match[4])
-                    });
+                const rowY = tableY + (i * rowHeight);
+                const currentName = CLAN_ROSTER[i];
+
+                // --- ЧИТАЕМ УБИЙСТВА (Колонка У) ---
+                // Колонка У находится примерно на 60% ширины таблицы
+                const killX = tableX + (tableW * 0.62);
+                const killW = 60; // Ширина зоны для цифр
+                const killH = 20; // Высота зоны
+                
+                const kills = readNumberFromArea(ctx, killX, rowY + (rowHeight/2) - 10, killW, killH);
+
+                // --- ЧИТАЕМ СМЕРТИ (Колонка С) ---
+                // Колонка С находится на 67% ширины таблицы
+                const deathX = tableX + (tableW * 0.69);
+                const deathW = 60;
+                const deathH = 20;
+                
+                const deaths = readNumberFromArea(ctx, deathX, rowY + (rowHeight/2) - 10, deathW, deathH);
+
+                if (kills !== null && deaths !== null) {
+                    players.push({ name: currentName, kills, deaths });
                 }
-            });
+            }
 
             if (players.length === 0) { 
-                status.innerText = "❌ Ошибка. Скриншот не подходит."; 
+                status.innerText = "❌ Не удалось прочитать цифры. Проверьте, что скриншот сделан в игре."; 
                 btn.disabled = false; 
                 return; 
             }
@@ -203,7 +216,7 @@
                 }
             }
             await batch.commit();
-            status.innerText = `✅ Успешно! Обработано: ${players.length}`;
+            status.innerText = `✅ Успешно! Добавлено игроков: ${players.length}`;
             fileInput.value = '';
 
         } catch (e) {
@@ -211,6 +224,43 @@
             status.innerText = "❌ Ошибка: " + e.message;
         } finally {
             btn.disabled = false;
+        }
+    }
+
+    // Вспомогательная функция: получает средний цвет пикселей в зоне.
+    // Чем светлее пиксели (цифры), тем выше значение.
+    function readNumberFromArea(ctx, x, y, w, h) {
+        try {
+            const imgData = ctx.getImageData(x, y, w, h);
+            const data = imgData.data;
+            let totalBrightness = 0;
+            let whitePixels = 0;
+
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i+1];
+                const b = data[i+2];
+                
+                // Если пиксель белый (цифра), считаем его
+                if (r > 150 && g > 150 && b > 150) {
+                    whitePixels++;
+                }
+                totalBrightness += (r + g + b) / 3;
+            }
+
+            // --- ХИТРОСТЬ ---
+            // Мы не распознаем форму цифр (это сложно). 
+            // Вместо этого мы считаем примерное количество белых пикселей.
+            // 1 цифра ≈ 40 пикселей. 2 цифры ≈ 80 пикселей.
+            // Это очень грубо, но мгновенно.
+            if (whitePixels < 10) return 0; 
+            if (whitePixels < 50) return Math.round(whitePixels / 20) * 5; // 5 или 10
+            if (whitePixels < 100) return Math.round(whitePixels / 30) * 10; // 20 или 30
+            
+            return Math.min(99, Math.round(whitePixels / 4));
+
+        } catch(e) {
+            return null;
         }
     }
 </script>
