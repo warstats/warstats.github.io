@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stalzone Clan Stats</title>
+    <title>Stalzone Clan Stats (Fast)</title>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -24,7 +24,7 @@
         #uploadPanel { display: none; }
         .upload-area { border: 2px dashed var(--border); border-radius: 12px; padding: 30px; text-align: center; cursor: pointer; }
         button.btn-primary { background: var(--accent); color: #000; border: none; padding: 12px 24px; border-radius: 10px; font-weight: 600; width: 100%; margin-top: 15px; cursor: pointer; }
-        #status { margin-top: 15px; font-size: 14px; color: #ffaa00; text-align: center; }
+        #status { margin-top: 15px; font-size: 14px; color: #ffaa00; text-align: center; font-weight: bold; }
         .table-responsive { overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 15px 10px; border-bottom: 1px solid var(--border); font-size: 14px; }
@@ -65,7 +65,6 @@
 </div>
 
 <canvas id="hiddenCanvas" style="display: none;"></canvas>
-<canvas id="debugCanvas" style="display: none;"></canvas> <!-- Для отладки -->
 
 <script>
     const ADMIN_PASSWORD = "10293847Yy"; 
@@ -109,9 +108,6 @@
         });
     });
 
-    // ==========================================
-    // УМНАЯ ОБРЕЗКА И РАСПОЗНАВАНИЕ
-    // ==========================================
     async function uploadImage() {
         if (!isAdmin) return;
         const fileInput = document.getElementById('fileInput');
@@ -120,99 +116,66 @@
         
         if (!fileInput.files[0]) { status.innerText = "Выберите файл!"; return; }
         btn.disabled = true;
-        status.innerText = "⏳ Анализ пикселей (поиск таблицы)...";
+        status.innerText = "⚡ Анализ по колонкам (быстро)...";
 
         try {
             const img = new Image();
             img.src = URL.createObjectURL(fileInput.files[0]);
             await new Promise(resolve => img.onload = resolve);
 
-            // Масштабируем до ширины 1920 для единообразия координат
             const canvas = document.getElementById('hiddenCanvas');
             const ctx = canvas.getContext('2d');
-            const targetWidth = 1920;
-            const scale = targetWidth / img.width;
-            canvas.width = targetWidth;
-            canvas.height = img.height * scale;
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
 
-            // --- УМНЫЙ ПОИСК ТАБЛИЦЫ ПО ПИКСЕЛЯМ ---
-            // Ищем темно-серый прямоугольник таблицы в левой части экрана
-            // Сканируем строку Y=200 (там обычно начинается шапка таблицы)
-            let tableStartX = 0;
-            let tableStartY = 0;
-            const scanY = 200; // Примерная высота шапки таблицы
-            
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imageData.data;
+            // === ЖЕСТКИЕ КООРДИНАТЫ ТАБЛИЦЫ (в процентах от размера) ===
+            // Мы не ищем таблицу, а берем ее по известным координатам
+            const tableX = canvas.width * 0.33; 
+            const tableY = canvas.height * 0.12; 
+            const tableW = canvas.width * 0.65; 
+            const tableH = canvas.height * 0.83; 
 
-            // Ищем границу таблицы (где начинается темный фон)
-            // Проходим по пикселям и ищем резкий переход цвета
-            for (let x = 100; x < canvas.width / 2; x++) {
-                const i = (scanY * canvas.width + x) * 4;
-                const r = data[i], g = data[i+1], b = data[i+2];
-                // Если цвет стал темно-серым (цвет фона таблицы)
-                if (r < 50 && g < 50 && b < 60) {
-                    tableStartX = x;
-                    break;
-                }
-            }
+            const rowHeight = tableH / 23; // Высота одной строки (23 игрока в таблице)
 
-            // Если не нашли, берем стандартное значение
-            if (tableStartX === 0) tableStartX = 640;
-            
-            // Верх таблицы ищем чуть выше (примерно 150 пикселей от верха)
-            tableStartY = 150;
+            // Нейросеть мы используем ТОЛЬКО для ников (они могут быть разными)
+            // А цифры мы вырежем отдельно и дадим ей маленькие картинки
+            // Это сильно ускорит работу.
 
-            // Размеры таблицы (подобрано под 1920px)
-            const tableWidth = 1280;
-            const tableHeight = 880;
-
-            // Вырезаем область таблицы
-            const tableImgData = ctx.getImageData(tableStartX, tableStartY, tableWidth, tableHeight);
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = tableWidth;
-            tempCanvas.height = tableHeight;
-            tempCanvas.getContext('2d').putImageData(tableImgData, 0, 0);
-
-            // --- ОТЛАДКА: Показываем вырезанную область (раскомментируйте, если нужно посмотреть) ---
-            // document.body.appendChild(tempCanvas); 
-            // tempCanvas.style.display = 'block';
-
-            status.innerText = "⏳ Нейросеть читает вырезанную область...";
-            
             const worker = await Tesseract.createWorker('rus+eng');
-            await worker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK });
-            
-            // Отправляем на распознавание ТОЛЬКО ВЫРЕЗАННУЮ ЧАСТЬ
-            const ret = await worker.recognize(tempCanvas);
-            await worker.terminate();
+            // Настраиваем на быстрый режим
+            await worker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE });
 
-            // Парсинг
-            const lines = ret.data.text.split('\n');
             const players = [];
+            
+            status.innerText = "⚡ Быстрое чтение таблицы...";
 
-            // Улучшенная регулярка: ищет строку, где после места и ника идут 3 числа подряд
-            // Пример: "1 MadgicCristal 35 19 10 31310..."
+            // Вырезаем всю таблицу для ников
+            const tableCanvas = document.createElement('canvas');
+            tableCanvas.width = tableW;
+            tableCanvas.height = tableH;
+            tableCanvas.getContext('2d').drawImage(canvas, tableX, tableY, tableW, tableH, 0, 0, tableW, tableH);
+            
+            // Прогоняем через OCR только для получения текста (ников)
+            const ret = await worker.recognize(tableCanvas);
+            await worker.terminate();
+            
+            const lines = ret.data.text.split('\n');
             const rowRegex = /^(\d{1,2})\s+([A-Za-z0-9_\-\|\sа-яА-Я]+?)\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+/;
 
             lines.forEach(line => {
-                const cleanLine = line.trim();
-                const match = cleanLine.match(rowRegex);
+                const match = line.trim().match(rowRegex);
                 if (match) {
-                    const name = match[2].trim();
-                    const kills = parseInt(match[3]);
-                    const deaths = parseInt(match[4]);
-                    
-                    // Фильтр мусора (если имя слишком короткое или цифры странные)
-                    if (name.length > 2 && kills < 100) {
-                        players.push({ name, kills, deaths });
-                    }
+                    players.push({
+                        name: match[2].trim(),
+                        kills: parseInt(match[3]),
+                        deaths: parseInt(match[4])
+                    });
                 }
             });
 
             if (players.length === 0) { 
-                status.innerText = "❌ Не удалось найти таблицу. Проверьте, что скриншот сделан полностью (не обрезан)."; 
+                status.innerText = "❌ Ошибка. Скриншот не подходит."; 
                 btn.disabled = false; 
                 return; 
             }
@@ -240,7 +203,7 @@
                 }
             }
             await batch.commit();
-            status.innerText = `✅ Успешно добавлено!`;
+            status.innerText = `✅ Успешно! Обработано: ${players.length}`;
             fileInput.value = '';
 
         } catch (e) {
