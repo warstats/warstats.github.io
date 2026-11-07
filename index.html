@@ -4,68 +4,228 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stalzone Clan Stats</title>
-    <!-- Tesseract.js для распознавания -->
+    <!-- Шрифт и иконки -->
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Tesseract.js -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-    <!-- Firebase (Firestore) -->
+    <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1e1e24; color: #fff; padding: 20px; margin: 0; }
-        h1, h2 { color: #00d2ff; }
-        .container { max-width: 1000px; margin: 0 auto; }
-        .card { background: #2b2b36; padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        th, td { border: 1px solid #444; padding: 10px; text-align: center; }
-        th { background: #353545; color: #00d2ff; }
-        tr:nth-child(even) { background: #252530; }
-        .highlight { background: rgba(0, 210, 255, 0.2) !important; }
-        .name-col { text-align: left; font-weight: bold; }
-        input[type="file"] { margin-top: 10px; color: #ccc; }
-        button { background: #00d2ff; color: #000; border: none; padding: 10px 20px; font-weight: bold; border-radius: 5px; cursor: pointer; margin-top: 10px; transition: 0.2s; }
-        button:hover { background: #00b8e6; }
-        button:disabled { background: #555; color: #888; cursor: not-allowed; }
-        #status { margin-top: 10px; color: #ffaa00; font-weight: bold; }
-        .loading { font-style: italic; color: #aaa; }
+        :root {
+            --bg-color: #0f111a;
+            --card-bg: #1a1d2d;
+            --accent: #00d2ff;
+            --accent-hover: #00b8e6;
+            --text-main: #ffffff;
+            --text-muted: #8b92a5;
+            --border: #2a2e42;
+            --danger: #ff4757;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            background-image: radial-gradient(circle at 50% -20%, #1e243d 0%, var(--bg-color) 60%);
+            padding: 20px;
+            overflow-x: hidden;
+        }
+
+        /* Анимации (Моушен) */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes pulseGlow {
+            0% { box-shadow: 0 0 0 0 rgba(0, 210, 255, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(0, 210, 255, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(0, 210, 255, 0); }
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            animation: fadeInUp 0.6s ease-out;
+        }
+
+        /* Шапка */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding: 10px 0;
+        }
+        h1 {
+            font-weight: 800;
+            font-size: 24px;
+            background: linear-gradient(90deg, #fff, var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Кнопка админа */
+        .admin-btn {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            padding: 10px 15px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: 'Montserrat', sans-serif;
+        }
+        .admin-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .admin-btn.active { color: var(--accent); border-color: var(--accent); }
+
+        /* Карточки */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 15px 35px rgba(0,0,0,0.4); }
+
+        h2 {
+            font-size: 18px;
+            margin-bottom: 15px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Панель загрузки */
+        #uploadPanel { display: none; }
+        .upload-area {
+            border: 2px dashed var(--border);
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .upload-area:hover { border-color: var(--accent); background: rgba(0, 210, 255, 0.05); }
+        .upload-area input[type="file"] {
+            position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;
+        }
+        .upload-area i { font-size: 30px; color: var(--accent); margin-bottom: 10px; }
+        .upload-area p { color: var(--text-muted); font-size: 14px; }
+
+        button.btn-primary {
+            background: var(--accent);
+            color: #000;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-family: 'Montserrat', sans-serif;
+            cursor: pointer;
+            margin-top: 15px;
+            width: 100%;
+            transition: all 0.3s ease;
+        }
+        button.btn-primary:hover { background: var(--accent-hover); transform: scale(1.01); }
+        button.btn-primary:disabled { background: #444; color: #888; cursor: not-allowed; transform: none; }
+
+        #status { margin-top: 15px; font-size: 14px; color: #ffaa00; text-align: center; }
+
+        /* Таблица */
+        .table-responsive { overflow-x: auto; border-radius: 12px; }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th, td { padding: 15px 10px; border-bottom: 1px solid var(--border); font-size: 14px; }
+        th { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 12px; letter-spacing: 1px; }
+        tr { transition: background 0.2s; }
+        tr:hover { background: rgba(255,255,255,0.02); }
+        
+        .rank { font-weight: 800; color: var(--text-muted); width: 40px; }
+        .rank.top-1 { color: #ffd700; font-size: 16px; }
+        .rank.top-2 { color: #c0c0c0; font-size: 15px; }
+        .rank.top-3 { color: #cd7f32; font-size: 15px; }
+
+        .name { font-weight: 600; color: #fff; }
+        .highlight { background: rgba(0, 210, 255, 0.1) !important; border-left: 3px solid var(--accent); }
+        .kd { font-weight: 800; color: var(--accent); }
+        .loading { text-align: center; color: var(--text-muted); font-style: italic; padding: 30px; }
+
+        /* Адаптивность (Телефоны) */
+        @media (max-width: 600px) {
+            body { padding: 10px; }
+            h1 { font-size: 20px; }
+            .card { padding: 15px; }
+            th, td { padding: 10px 5px; font-size: 12px; }
+            .name-col { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        }
     </style>
 </head>
 <body>
+
 <div class="container">
-    <h1>🏆 Статистика клана (Stalzone)</h1>
-    
-    <div class="card">
-        <h2>Загрузить новый скриншот</h2>
-        <p>Выберите скриншот сводки с поля боя. Данные навсегда сохранятся в облаке.</p>
-        <input type="file" id="fileInput" accept="image/*">
-        <br>
-        <button id="uploadBtn" onclick="uploadImage()">Отправить на распознавание</button>
-        <div id="status">Ожидание...</div>
+    <header>
+        <h1><i class="fas fa-trophy" style="color: var(--accent);"></i> ARMS SHADOW</h1>
+        <button class="admin-btn" id="adminBtn" onclick="toggleAdmin()">
+            <i class="fas fa-lock" id="lockIcon"></i> <span id="adminText">Админ</span>
+        </button>
+    </header>
+
+    <!-- Панель загрузки (скрыта по умолчанию) -->
+    <div class="card" id="uploadPanel">
+        <h2><i class="fas fa-cloud-upload-alt"></i> Загрузка скриншота</h2>
+        <div class="upload-area">
+            <input type="file" id="fileInput" accept="image/*">
+            <i class="fas fa-image"></i>
+            <p>Нажмите или перетащите скриншот сюда</p>
+            <p style="font-size: 12px; margin-top: 5px;">Поддерживаются PNG, JPG</p>
+        </div>
+        <button class="btn-primary" id="uploadBtn" onclick="uploadImage()">Распознать и добавить</button>
+        <div id="status">Ожидание файла...</div>
     </div>
 
+    <!-- Таблица со статистикой -->
     <div class="card">
-        <h2>Общая статистика игроков</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Никнейм</th>
-                    <th>Матчей</th>
-                    <th>Всего Убийств</th>
-                    <th>Всего Смертей</th>
-                    <th>Средний K/D</th>
-                </tr>
-            </thead>
-            <tbody id="statsBody">
-                <tr><td colspan="6" class="loading">Загрузка данных из облака...</td></tr>
-            </tbody>
-        </table>
+        <h2><i class="fas fa-chart-line" style="color: var(--accent);"></i> Статистика клана</h2>
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Игрок</th>
+                        <th>Матчи</th>
+                        <th>У</th>
+                        <th>С</th>
+                        <th>K/D</th>
+                    </tr>
+                </thead>
+                <tbody id="statsBody">
+                    <tr><td colspan="6" class="loading"><i class="fas fa-spinner fa-spin"></i> Синхронизация с облаком...</td></tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 
 <script>
     // ==========================================
-    // ВАШ КОНФИГ ИЗ FIREBASE
+    // НАСТРОЙКИ
     // ==========================================
+    const ADMIN_PASSWORD = "10293847Yy"; 
+    
     const firebaseConfig = {
       apiKey: "AIzaSyAlpgpurJx8dEwBDWpkXSIjUYaUh-r7xNE",
       authDomain: "clanwars-arms.firebaseapp.com",
@@ -77,58 +237,103 @@
       measurementId: "G-76KVGNN87L"
     };
 
-    // Инициализация Firebase
     firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore(); // Используем Firestore
+    const db = firebase.firestore();
 
-    // 1. Загрузка статистики (в реальном времени)
+    // ==========================================
+    // АВТОРИЗАЦИЯ АДМИНА
+    // ==========================================
+    let isAdmin = localStorage.getItem('isAdmin') === 'true';
+
+    function updateAdminUI() {
+        const panel = document.getElementById('uploadPanel');
+        const btn = document.getElementById('adminBtn');
+        const icon = document.getElementById('lockIcon');
+        const text = document.getElementById('adminText');
+
+        if (isAdmin) {
+            panel.style.display = 'block';
+            btn.classList.add('active');
+            icon.className = 'fas fa-unlock';
+            text.innerText = 'Выйти';
+        } else {
+            panel.style.display = 'none';
+            btn.classList.remove('active');
+            icon.className = 'fas fa-lock';
+            text.innerText = 'Админ';
+        }
+    }
+
+    function toggleAdmin() {
+        if (isAdmin) {
+            isAdmin = false;
+            localStorage.removeItem('isAdmin');
+            updateAdminUI();
+        } else {
+            const pass = prompt("Введите пароль администратора:");
+            if (pass === ADMIN_PASSWORD) {
+                isAdmin = true;
+                localStorage.setItem('isAdmin', 'true');
+                updateAdminUI();
+            } else if (pass !== null) {
+                alert("Неверный пароль!");
+            }
+        }
+    }
+
+    // Проверяем статус при загрузке
+    window.addEventListener('DOMContentLoaded', updateAdminUI);
+
+    // ==========================================
+    // ЗАГРУЗКА И ОТОБРАЖЕНИЕ СТАТИСТИКИ
+    // ==========================================
     function loadStats() {
         const tbody = document.getElementById('statsBody');
         
-        // Слушаем изменения в коллекции 'players'
         db.collection('players').onSnapshot((snapshot) => {
             let players = [];
-            
-            snapshot.forEach(doc => {
-                players.push({
-                    id: doc.id,
-                    ...doc.data()
-                });
-            });
+            snapshot.forEach(doc => { players.push(doc.data()); });
 
             tbody.innerHTML = '';
 
             if (players.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6">Пока нет данных. Загрузите первый скриншот!</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="loading">Пока нет данных. Загрузите первый скриншот!</td></tr>';
                 return;
             }
 
-            // Сортировка по убыванию K/D
             players.sort((a, b) => b.avgKD - a.avgKD);
 
-            // Отрисовка
             players.forEach((player, index) => {
                 const tr = document.createElement('tr');
                 if (player.name.toLowerCase().includes('infern')) tr.classList.add('highlight');
                 
+                let rankClass = '';
+                if (index === 0) rankClass = 'top-1';
+                else if (index === 1) rankClass = 'top-2';
+                else if (index === 2) rankClass = 'top-3';
+
                 tr.innerHTML = `
-                    <td>${index + 1}</td>
-                    <td class="name-col">${player.name}</td>
+                    <td class="rank ${rankClass}">${index + 1}</td>
+                    <td class="name-col name">${player.name}</td>
                     <td>${player.matches}</td>
                     <td>${player.totalKills}</td>
                     <td>${player.totalDeaths}</td>
-                    <td style="color: #00d2ff; font-weight: bold;">${player.avgKD.toFixed(2)}</td>
+                    <td class="kd">${player.avgKD.toFixed(2)}</td>
                 `;
                 tbody.appendChild(tr);
             });
         }, (error) => {
-            console.error("Ошибка БД:", error);
-            tbody.innerHTML = '<tr><td colspan="6" style="color:red;">Ошибка подключения к базе. Проверьте правила Firestore.</td></tr>';
+            console.error(error);
+            tbody.innerHTML = '<tr><td colspan="6" class="loading" style="color:var(--danger)">Ошибка подключения к базе.</td></tr>';
         });
     }
 
-    // 2. Распознавание и сохранение
+    // ==========================================
+    // РАСПОЗНАВАНИЕ И СОХРАНЕНИЕ
+    // ==========================================
     async function uploadImage() {
+        if (!isAdmin) return;
+        
         const fileInput = document.getElementById('fileInput');
         const status = document.getElementById('status');
         const btn = document.getElementById('uploadBtn');
@@ -139,7 +344,7 @@
         }
 
         btn.disabled = true;
-        status.innerText = "⏳ Нейросеть распознает текст (10-20 сек)... Пожалуйста, подождите.";
+        status.innerText = "⏳ Нейросеть анализирует изображение...";
 
         try {
             const worker = await Tesseract.createWorker('rus+eng');
@@ -147,7 +352,7 @@
             const ret = await worker.recognize(fileInput.files[0]);
             await worker.terminate();
 
-            status.innerText = "📤 Сохранение результатов в базу данных...";
+            status.innerText = "📤 Сохранение в облако...";
             
             const lines = ret.data.text.split('\n');
             const rowRegex = /^(\d{1,2})\s+([A-Za-z0-9_\-\|\sа-яА-Я]+?)\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+/;
@@ -165,20 +370,16 @@
             });
 
             if (players.length === 0) {
-                status.innerText = "❌ Не удалось распознать таблицу. Обрежьте скриншот, оставив только список игроков.";
+                status.innerText = "❌ Не удалось распознать таблицу. Попробуйте обрезать скриншот.";
                 btn.disabled = false;
                 return;
             }
 
-            // Запись в Firestore
             const batch = db.batch();
             
             for (const p of players) {
-                // В Firestore ID документа не может содержать слеши (/), заменяем их
                 const safeName = p.name.replace(/\//g, '_');
                 const playerRef = db.collection('players').doc(safeName);
-                
-                // Получаем текущие данные
                 const doc = await playerRef.get();
                 
                 if (doc.exists) {
@@ -206,9 +407,8 @@
                 }
             }
 
-            await batch.commit(); // Сохраняем всё разом
-            
-            status.innerText = `✅ Успешно! Добавлен матч для ${players.length} игроков.`;
+            await batch.commit();
+            status.innerText = `✅ Успешно! Обработано игроков: ${players.length}.`;
             fileInput.value = '';
             
         } catch (e) {
@@ -219,7 +419,6 @@
         }
     }
 
-    // Запуск при загрузке страницы
     window.onload = loadStats;
 </script>
 </body>
