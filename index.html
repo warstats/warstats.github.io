@@ -7,12 +7,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,800;1,600&family=Montserrat:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     
     <style>
-        /* ... (стили Monet остаются без изменений) ... */
         :root { 
             --bg-gradient: linear-gradient(135deg, #e0eaff 0%, #f4e8ff 50%, #ffe6e6 100%);
             --card-bg: rgba(255, 255, 255, 0.65);
@@ -22,6 +20,7 @@
             --text-main: #2c3e50;
             --text-muted: #6a7c92;
             --gold: #d4af37;
+            --danger: #e74c3c;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Montserrat', sans-serif; background: var(--bg-gradient); background-attachment: fixed; color: var(--text-main); min-height: 100vh; padding: 20px; }
@@ -36,13 +35,26 @@
         .admin-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
         .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 24px; padding: 30px; margin-bottom: 30px; backdrop-filter: blur(15px); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05); }
         h2 { font-family: 'Playfair Display', serif; font-size: 22px; margin-bottom: 20px; color: var(--text-main); display: flex; align-items: center; gap: 10px; }
+        
         #uploadPanel { display: none; }
-        .upload-area { border: 2px dashed var(--accent); border-radius: 20px; padding: 40px; text-align: center; cursor: pointer; background: rgba(255,255,255,0.4); transition: all 0.3s ease; }
+        .input-group { margin-bottom: 15px; }
+        .input-group label { display: block; font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 5px; }
+        .input-group input { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--card-border); background: rgba(255,255,255,0.8); font-family: 'Montserrat', sans-serif; outline: none; transition: 0.3s; }
+        .input-group input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(123, 154, 204, 0.2); }
+
+        .upload-area { border: 2px dashed var(--accent); border-radius: 20px; padding: 30px; text-align: center; cursor: pointer; background: rgba(255,255,255,0.4); transition: all 0.3s ease; margin-top: 15px; }
         .upload-area:hover { background: rgba(255,255,255,0.7); }
         .upload-area input[type="file"] { display: none; }
-        button.btn-primary { background: var(--accent); color: #fff; border: none; padding: 14px 24px; border-radius: 50px; font-weight: 600; width: 100%; margin-top: 20px; cursor: pointer; font-family: 'Montserrat', sans-serif; font-size: 16px; transition: background 0.3s; box-shadow: 0 4px 15px rgba(123, 154, 204, 0.3); }
+        
+        .btn-row { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+        button.btn-primary { background: var(--accent); color: #fff; border: none; padding: 14px 24px; border-radius: 50px; font-weight: 600; flex: 1; min-width: 200px; cursor: pointer; font-family: 'Montserrat', sans-serif; font-size: 16px; transition: background 0.3s; box-shadow: 0 4px 15px rgba(123, 154, 204, 0.3); }
         button.btn-primary:hover { background: var(--accent-dark); }
         button.btn-primary:disabled { background: #ccc; cursor: wait; box-shadow: none; }
+        
+        button.btn-danger { background: rgba(231, 76, 60, 0.1); color: var(--danger); border: 2px solid var(--danger); border-radius: 50px; font-weight: 600; flex: 1; min-width: 200px; cursor: pointer; font-family: 'Montserrat', sans-serif; font-size: 16px; transition: all 0.3s; }
+        button.btn-danger:hover { background: var(--danger); color: #fff; }
+        button.btn-danger:disabled { opacity: 0.5; cursor: wait; }
+
         #status { margin-top: 15px; font-size: 14px; color: var(--accent-dark); text-align: center; font-weight: 600; }
         .table-responsive { overflow-x: auto; border-radius: 16px; }
         table { width: 100%; border-collapse: collapse; }
@@ -70,14 +82,24 @@
     </header>
 
     <div class="card" id="uploadPanel">
-        <h2><i class="fas fa-feather-alt"></i> Загрузка скриншота</h2>
+        <h2><i class="fas fa-feather-alt"></i> Панель администратора</h2>
+        
+        <div class="input-group">
+            <label>API-ключ Gemini (сохраняется в вашем браузере)</label>
+            <input type="password" id="apiKeyInput" placeholder="Вставьте ваш ключ (AQ.Ab8...)">
+        </div>
+
         <div class="upload-area" onclick="document.getElementById('fileInput').click()">
             <input type="file" id="fileInput" accept="image/*">
             <i class="fas fa-image" style="font-size: 40px; color: var(--accent); margin-bottom: 15px;"></i>
             <p style="color: var(--text-muted);">Нажмите, чтобы выбрать скриншот...</p>
         </div>
-        <button class="btn-primary" id="uploadBtn" onclick="uploadImage()">Распознать через Gemini</button>
-        <div id="status">Ожидание файла...</div>
+
+        <div class="btn-row">
+            <button class="btn-primary" id="uploadBtn" onclick="uploadImage()">Распознать</button>
+            <button class="btn-danger" id="clearBtn" onclick="clearDatabase()">Очистить базу</button>
+        </div>
+        <div id="status">Готов к работе.</div>
     </div>
 
     <div class="card">
@@ -94,9 +116,6 @@
 <script>
     const ADMIN_PASSWORD = "10293847Yy"; 
     
-    // ВАШ КЛЮЧ GEMINI. Вставьте его сюда, но помните о рисках публикации.
-    const GEMINI_API_KEY = "AQ.Ab8RN6L2GFxqdiLoFOTmj8dyat5MnSgrb5_mp2v7qO1q5FnsTA";
-    
     const firebaseConfig = {
       apiKey: "AIzaSyAlpgpurJx8dEwBDWpkXSIjUYaUh-r7xNE",
       authDomain: "clanwars-arms.firebaseapp.com",
@@ -108,6 +127,10 @@
 
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
+
+    // Восстанавливаем ключ при загрузке страницы
+    const apiKeyInput = document.getElementById('apiKeyInput');
+    apiKeyInput.value = localStorage.getItem('geminiKey') || '';
 
     let isAdmin = localStorage.getItem('isAdmin') === 'true';
     function updateAdminUI() {
@@ -122,6 +145,7 @@
     }
     window.addEventListener('DOMContentLoaded', updateAdminUI);
 
+    // Отображение статистики
     db.collection('players').onSnapshot((snapshot) => {
         let players = [];
         snapshot.forEach(doc => { players.push(doc.data()); });
@@ -152,29 +176,33 @@
         });
     });
 
+    // Функция распознавания
     async function uploadImage() {
         if (!isAdmin) return;
         const fileInput = document.getElementById('fileInput');
         const status = document.getElementById('status');
         const btn = document.getElementById('uploadBtn');
+        const apiKey = apiKeyInput.value.trim();
         
-        if (!fileInput.files[0]) { status.innerText = "Выберите файл!"; return; }
+        if (!apiKey) { status.innerText = "❌ Введите API-ключ!"; return; }
+        if (!fileInput.files[0]) { status.innerText = "❌ Выберите файл!"; return; }
+
+        // Сохраняем ключ в браузере
+        localStorage.setItem('geminiKey', apiKey);
+
         btn.disabled = true;
-        status.innerText = "⏳ Отправка в Gemini (это может занять 5-10 секунд)...";
+        status.innerText = "⏳ Отправка в Gemini (5-10 сек)...";
 
         try {
             const file = fileInput.files[0];
             
-            // 1. Конвертируем изображение в Base64
             const reader = new FileReader();
             const base64Promise = new Promise((resolve) => {
-                reader.onload = () => resolve(reader.result.split(',')[1]); // Убираем префикс data:image/...
+                reader.onload = () => resolve(reader.result.split(',')[1]);
             });
             reader.readAsDataURL(file);
             const base64Image = await base64Promise;
 
-            // 2. Формируем промпт и JSON-схему для ответа
-            // Мы просим Gemini найти таблицу и вернуть строго JSON
             const prompt = "Это скриншот из игры Stalzone. Найди таблицу со статистикой игроков. Мне нужны никнеймы, убийства (колонка У) и смерти (колонка С). Верни ТОЛЬКО JSON-массив объектов, где каждый объект имеет поля: 'name' (строка), 'kills' (число), 'deaths' (число). Не добавляй никакого текста, только чистый JSON.";
 
             const requestBody = {
@@ -184,7 +212,6 @@
                         { inline_data: { mime_type: file.type, data: base64Image } }
                     ]
                 }],
-                // Просим Gemini вернуть строго JSON (structured output)
                 generationConfig: {
                     response_mime_type: "application/json",
                     response_schema: {
@@ -202,8 +229,7 @@
                 }
             };
 
-            // 3. Отправляем запрос в Gemini
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}`, {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestBody)
@@ -219,12 +245,11 @@
             const players = JSON.parse(jsonText);
 
             if (!players || players.length === 0) {
-                status.innerText = "❌ Gemini не нашёл таблицу. Убедитесь, что скриншот полный.";
+                status.innerText = "❌ Gemini не нашёл таблицу.";
                 btn.disabled = false;
                 return;
             }
 
-            // 4. Сохраняем в Firebase
             status.innerText = `📤 Сохранение ${players.length} игроков...`;
             const batch = db.batch();
             for (const p of players) {
@@ -254,6 +279,35 @@
         } catch (e) {
             console.error(e);
             status.innerText = "❌ Ошибка: " + e.message;
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    // Функция очистки базы
+    async function clearDatabase() {
+        if (!isAdmin) return;
+        if (!confirm("Вы уверены, что хотите УДАЛИТЬ ВСЕ данные игроков? Это действие нельзя отменить.")) return;
+
+        const status = document.getElementById('status');
+        const btn = document.getElementById('clearBtn');
+        
+        btn.disabled = true;
+        status.innerText = "🗑️ Удаление всех записей...";
+
+        try {
+            const snapshot = await db.collection('players').get();
+            const batch = db.batch();
+            
+            snapshot.forEach((doc) => {
+                batch.delete(doc.ref);
+            });
+
+            await batch.commit();
+            status.innerText = "✅ База данных полностью очищена!";
+        } catch (e) {
+            console.error(e);
+            status.innerText = "❌ Ошибка при очистке: " + e.message;
         } finally {
             btn.disabled = false;
         }
